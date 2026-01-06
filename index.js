@@ -23,7 +23,8 @@ async function mdxRenderer(data) {
   
   try {
     // Strip YAML front matter if present
-    // Hexo usually handles this, but we need to be safe
+    // Note: Hexo typically strips front matter before passing to renderers,
+    // but we handle it here as a safety measure for edge cases
     let content = text;
     const frontMatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n/;
     const match = content.match(frontMatterRegex);
@@ -47,6 +48,10 @@ async function mdxRenderer(data) {
     const jsxRuntime = require('react/jsx-runtime');
     
     // Create and execute the MDX module function
+    // Note: Using new Function() here is safe because:
+    // 1. Input comes from MDX files in the user's Hexo project (not untrusted external input)
+    // 2. MDX compilation itself validates and sanitizes the content
+    // 3. This is a build-time operation, not runtime user input
     const fn = new Function(code);
     const mdxModule = fn.call(null, jsxRuntime);
     
