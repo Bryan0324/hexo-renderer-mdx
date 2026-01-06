@@ -1,6 +1,6 @@
 {
   "name": "hexo-renderer-mdx",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "MDX renderer plugin for Hexo with React component support",
   "main": "index.js",
   "scripts": {
