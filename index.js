@@ -1,9 +1,45 @@
 'use strict';
 
-const { compile } = require('@mdx-js/mdx');
 const { renderToString } = require('react-dom/server');
 const React = require('react');
 const fs = require('fs');
+const { createRequire } = require('module');
+
+// Create a require for loading ESM modules
+let compile;
+let compileLoaded = false;
+
+async function loadCompile() {
+  if (!compileLoaded) {
+    try {
+      // Try to load @mdx-js/mdx - it may be CJS or ESM depending on the environment
+      try {
+        // First try: dynamic import with proper error handling
+        const mdxModule = await (async () => {
+          try {
+            return await import('@mdx-js/mdx');
+          } catch (err) {
+            // If dynamic import fails, this might be a require context issue
+            // Return null to trigger fallback
+            return null;
+          }
+        })();
+        
+        if (mdxModule) {
+          compile = mdxModule.compile;
+        } else {
+          throw new Error('Could not load @mdx-js/mdx via dynamic import');
+        }
+      } catch (err) {
+        // Fallback: try to require it directly (in case it's been transpiled)
+        compile = require('@mdx-js/mdx').compile;
+      }
+      compileLoaded = true;
+    } catch (err) {
+      throw new Error(`Failed to load @mdx-js/mdx: ${err.message}`);
+    }
+  }
+}
 
 /**
  * MDX Renderer for Hexo
@@ -23,6 +59,9 @@ async function mdxRenderer(data) {
   const { text, path } = data;
   
   try {
+    // Ensure compile function is loaded
+    await loadCompile();
+    
     // Read the original file directly to bypass Hexo's template processing
     let content;
     try {
@@ -42,13 +81,11 @@ async function mdxRenderer(data) {
     }
     
     // Compile MDX to JavaScript with automatic JSX runtime
+    // Use outputFormat: 'function-body' and development: true to avoid jsxImportSource
     const compiled = await compile(content, {
       outputFormat: 'function-body',
-      development: false,
-      jsxImportSource: 'react',
-      format: 'mdx',
-      mdxExtensions: ['.mdx'],
-      // Explicitly set recma plugins to handle JSX expressions properly
+      development: true,
+      // remarkRehypeOptions for markdown processing
       remarkRehypeOptions: {
         allowDangerousHtml: true
       }
@@ -57,8 +94,8 @@ async function mdxRenderer(data) {
     // Create a function from the compiled code
     const code = String(compiled);
     
-    // The compiled code expects the jsx-runtime
-    const jsxRuntime = require('react/jsx-runtime');
+    // When development: true, the compiled code uses jsxDEV from react/jsx-dev-runtime
+    const jsxDevRuntime = require('react/jsx-dev-runtime');
     
     // Create and execute the MDX module function
     // Note: Using new Function() here is safe because:
@@ -66,7 +103,7 @@ async function mdxRenderer(data) {
     // 2. MDX compilation itself validates and sanitizes the content
     // 3. This is a build-time operation, not runtime user input
     const fn = new Function(code);
-    const mdxModule = fn.call(null, jsxRuntime);
+    const mdxModule = fn.call(null, jsxDevRuntime);
     
     // The result has a default export which is the MDX component
     const MDXContent = mdxModule.default;
