@@ -1,0 +1,152 @@
+---
+title: Component-Rich Blog Post
+date: 2026-01-06
+author: Your Name
+tags:
+  - mdx
+  - components
+  - react
+---
+
+export const InfoBox = ({ type = 'info', children }) => {
+  const colors = {
+    info: { bg: '#d1ecf1', border: '#bee5eb', icon: 'ℹ️' },
+    warning: { bg: '#fff3cd', border: '#ffc107', icon: '⚠️' },
+    success: { bg: '#d4edda', border: '#c3e6cb', icon: '✅' },
+    danger: { bg: '#f8d7da', border: '#f5c6cb', icon: '❌' }
+  };
+  
+  const style = colors[type] || colors.info;
+  
+  return (
+    <div style={{
+      padding: '15px',
+      backgroundColor: style.bg,
+      border: `1px solid ${style.border}`,
+      borderRadius: '5px',
+      margin: '20px 0'
+    }}>
+      <strong>{style.icon}</strong> {children}
+    </div>
+  );
+};
+
+export const Highlight = ({ color, children }) => (
+  <span style={{ 
+    backgroundColor: color || '#ffeb3b', 
+    padding: '2px 6px',
+    borderRadius: '3px'
+  }}>
+    {children}
+  </span>
+);
+
+export const Gallery = ({ images }) => (
+  <div style={{
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+    gap: '15px',
+    margin: '20px 0'
+  }}>
+    {images.map((img, i) => (
+      <div key={i} style={{
+        border: '1px solid #ddd',
+        borderRadius: '8px',
+        overflow: 'hidden',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+      }}>
+        <div style={{
+          height: '150px',
+          backgroundColor: '#f0f0f0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '48px'
+        }}>
+          {img.emoji}
+        </div>
+        <div style={{ padding: '10px' }}>
+          <strong>{img.title}</strong>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+# Component-Rich Blog Post
+
+This example demonstrates how to create and use custom React components in your MDX content.
+
+## Using Custom Components
+
+### Info Boxes
+
+<InfoBox type="info">
+  This is an informational message with custom styling!
+</InfoBox>
+
+<InfoBox type="warning">
+  Be careful! This is a warning message.
+</InfoBox>
+
+<InfoBox type="success">
+  Great job! Your operation was successful.
+</InfoBox>
+
+<InfoBox type="danger">
+  Error! Something went wrong.
+</InfoBox>
+
+### Text Highlighting
+
+You can <Highlight color="#ff6b6b">highlight text</Highlight> in different colors:
+<Highlight color="#4ecdc4">like this</Highlight> or 
+<Highlight color="#ffe66d">like this</Highlight>.
+
+### Image Gallery
+
+Here's a custom gallery component:
+
+<Gallery images={[
+  { emoji: '🎨', title: 'Art' },
+  { emoji: '🎵', title: 'Music' },
+  { emoji: '📚', title: 'Books' },
+  { emoji: '🎮', title: 'Games' },
+  { emoji: '🏀', title: 'Sports' },
+  { emoji: '🍕', title: 'Food' }
+]} />
+
+## Mixing Markdown and JSX
+
+You can seamlessly mix markdown and JSX:
+
+Regular markdown **bold** and *italic* text, followed by a custom component:
+
+<InfoBox type="success">
+  Inside this box, you can use **markdown** _formatting_!
+  
+  - List item 1
+  - List item 2
+</InfoBox>
+
+## Code Examples
+
+Here's how to define a simple component in MDX:
+
+```jsx
+export const Button = ({ children, color }) => (
+  <button style={{ backgroundColor: color }}>
+    {children}
+  </button>
+);
+```
+
+Then use it like this:
+
+```jsx
+<Button color="blue">Click Me</Button>
+```
+
+## Conclusion
+
+MDX opens up endless possibilities for creating rich, interactive content for your Hexo blog!
