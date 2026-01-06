@@ -20,6 +20,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          # Required so npm CLI targets the correct registry and can perform OIDC auth
+          registry-url: 'https://registry.npmjs.org'
 
       # Optional: ensure package.json version matches the release tag (e.g. v1.0.2)
       - name: Sync package version from tag
