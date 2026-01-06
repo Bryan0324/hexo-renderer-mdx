@@ -38,7 +38,10 @@ async function mdxRenderer(data) {
     const compiled = await compile(content, {
       outputFormat: 'function-body',
       development: false,
-      jsxImportSource: 'react'
+      jsxImportSource: 'react',
+      // Add pragma to handle JSX properly
+      pragma: 'React.createElement',
+      pragmaFrag: 'React.Fragment'
     });
 
     // Create a function from the compiled code
@@ -65,7 +68,13 @@ async function mdxRenderer(data) {
     
     return html;
   } catch (err) {
-    throw new Error(`MDX compilation failed for ${path}: ${err.message}`);
+    // Provide more detailed error information
+    const errorMsg = `MDX compilation failed for ${path}: ${err.message}`;
+    console.error(errorMsg);
+    if (err.position) {
+      console.error(`Error at line ${err.position.start.line}, column ${err.position.start.column}`);
+    }
+    throw new Error(errorMsg);
   }
 }
 
