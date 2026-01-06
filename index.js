@@ -1,7 +1,6 @@
 'use strict';
 
 const { compile } = require('@mdx-js/mdx');
-const { createRequire } = require('module');
 const { renderToString } = require('react-dom/server');
 const React = require('react');
 

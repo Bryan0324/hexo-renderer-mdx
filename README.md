@@ -96,7 +96,22 @@ You can use any valid JSX expression:
 </div>
 ```
 
-## How It Works
+## Configuration
+
+The plugin works out of the box with no configuration required. However, you can customize MDX compilation options if needed.
+
+### Advanced Configuration
+
+If you need to customize the MDX compiler options, you can create a `hexo-renderer-mdx` configuration in your Hexo `_config.yml`:
+
+```yaml
+# _config.yml
+mdx:
+  # Enable development mode for better error messages
+  development: false
+```
+
+Note: The current version uses sensible defaults optimized for static site generation.
 
 The plugin:
 1. Compiles MDX files to JavaScript functions

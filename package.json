@@ -4,7 +4,7 @@
   "description": "MDX renderer plugin for Hexo with React component support",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test.js && node test-advanced.js"
   },
   "keywords": [
     "hexo",
