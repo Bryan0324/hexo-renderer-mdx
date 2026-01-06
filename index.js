@@ -35,20 +35,18 @@ async function mdxRenderer(data) {
     }
     
     // Compile MDX to JavaScript with automatic JSX runtime
+    // Use development: true to get jsxDEV which properly handles inline style objects
     const compiled = await compile(content, {
       outputFormat: 'function-body',
-      development: false,
-      jsxImportSource: 'react',
-      // Add pragma to handle JSX properly
-      pragma: 'React.createElement',
-      pragmaFrag: 'React.Fragment'
+      development: true, // This ensures proper handling of JSX expressions
+      jsxImportSource: 'react'
     });
 
     // Create a function from the compiled code
     const code = String(compiled);
     
-    // The compiled code expects arguments[0] to be the jsx-runtime
-    const jsxRuntime = require('react/jsx-runtime');
+    // The compiled code expects the jsx-runtime (jsxDEV in development mode)
+    const jsxRuntime = require('react/jsx-dev-runtime');
     
     // Create and execute the MDX module function
     // Note: Using new Function() here is safe because:
