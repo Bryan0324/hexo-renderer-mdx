@@ -22,6 +22,169 @@ or with yarn:
 yarn add hexo-renderer-mdx
 ```
 
+## How to Use
+
+### Quick Start
+
+1. **Install the plugin** in your Hexo blog directory:
+
+   ```bash
+   npm install hexo-renderer-mdx --save
+   ```
+
+2. **Create your first MDX post** in `source/_posts/my-first-mdx-post.mdx`:
+
+   ```mdx
+   ---
+   title: My First MDX Post
+   date: 2026-01-06
+   tags: [hexo, mdx]
+   ---
+
+   # Hello from MDX!
+
+   This is regular markdown **with bold text**.
+
+   <div style={{ 
+     padding: '20px', 
+     backgroundColor: '#e3f2fd',
+     borderRadius: '8px',
+     marginTop: '20px'
+   }}>
+     🎉 This is a styled JSX element!
+   </div>
+   ```
+
+3. **Generate your site**:
+
+   ```bash
+   hexo generate
+   ```
+
+4. **Preview locally**:
+
+   ```bash
+   hexo server
+   ```
+
+5. **View your post** at `http://localhost:4000`
+
+That's it! The plugin automatically processes all `.mdx` files in your Hexo blog.
+
+### Step-by-Step Guide
+
+#### 1. Setting Up a New Hexo Blog (Optional)
+
+If you don't have a Hexo blog yet:
+
+```bash
+npm install -g hexo-cli
+hexo init my-blog
+cd my-blog
+npm install
+```
+
+#### 2. Installing the Plugin
+
+In your Hexo blog directory:
+
+```bash
+npm install hexo-renderer-mdx --save
+```
+
+No additional configuration is needed - the plugin registers automatically!
+
+#### 3. Creating MDX Files
+
+MDX files work just like regular Markdown files, but with JSX support. Create files in:
+- `source/_posts/` for blog posts
+- `source/` for pages
+
+**File naming**: Use `.mdx` extension (e.g., `my-post.mdx`)
+
+**Front matter**: Same as regular Hexo posts:
+
+```mdx
+---
+title: Post Title
+date: 2026-01-06
+categories:
+  - Technology
+tags:
+  - hexo
+  - mdx
+---
+
+Your content here...
+```
+
+#### 4. Using MDX Features
+
+**Standard Markdown** - All markdown features work:
+
+```mdx
+# Heading 1
+## Heading 2
+
+**Bold**, *italic*, ~~strikethrough~~
+
+- List item 1
+- List item 2
+
+[Link text](https://example.com)
+```
+
+**Inline JSX** - Add HTML/JSX elements anywhere:
+
+```mdx
+<div className="custom-class" style={{ color: 'blue' }}>
+  Custom styled content
+</div>
+```
+
+**Custom Components** - Define and use React components:
+
+```mdx
+export const Alert = ({ children, type = 'info' }) => (
+  <div style={{ 
+    padding: '15px',
+    backgroundColor: type === 'warning' ? '#fff3cd' : '#d1ecf1',
+    borderRadius: '5px',
+    margin: '20px 0'
+  }}>
+    {children}
+  </div>
+);
+
+<Alert type="warning">
+  This is a custom alert component!
+</Alert>
+```
+
+**Dynamic Content** - Use JavaScript expressions:
+
+```mdx
+<div>
+  {['React', 'Vue', 'Angular'].map(framework => (
+    <p key={framework}>I ❤️ {framework}</p>
+  ))}
+</div>
+```
+
+#### 5. Building and Deploying
+
+Build your site as usual:
+
+```bash
+# Generate static files
+hexo generate
+
+# Deploy (if configured)
+hexo deploy
+```
+
+The MDX files are compiled to static HTML - no JavaScript runtime needed on your site!
+
 ## Usage
 
 After installation, you can create `.mdx` files in your `source/_posts` or `source` directory.
@@ -128,7 +291,6 @@ The plugin:
 
 This plugin uses:
 - `@mdx-js/mdx` - MDX compiler
-- `@mdx-js/react` - React integration
 - `react` & `react-dom` - React runtime for server-side rendering
 
 ## Notes
@@ -151,12 +313,52 @@ If you encounter compilation errors, check:
 Make sure all peer dependencies are installed:
 
 ```bash
-npm install react react-dom @mdx-js/mdx @mdx-js/react --save
+npm install react react-dom @mdx-js/mdx --save
 ```
+
+## Publishing
+
+### For Maintainers
+
+This package uses automated publishing to npm via GitHub Actions.
+
+**To publish a new version:**
+
+1. Update the version in `package.json`:
+   ```bash
+   npm version patch  # or minor, or major
+   ```
+
+2. Push the changes and tags:
+   ```bash
+   git push && git push --tags
+   ```
+
+3. Create a new release on GitHub:
+   - Go to the repository's "Releases" page
+   - Click "Create a new release"
+   - Select the tag you just created
+   - Add release notes
+   - Click "Publish release"
+
+4. The GitHub Action will automatically:
+   - Run tests
+   - Publish to npm with provenance
+   - Make the package publicly available
+
+**First-time setup:**
+
+Before publishing, you need to configure the `NPM_TOKEN` secret:
+
+1. Generate an npm automation token at https://www.npmjs.com/settings/tokens
+2. Add it to GitHub repository secrets as `NPM_TOKEN`
+3. Ensure the workflow file has the correct permissions
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed publishing instructions.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
 
 ## License
 
