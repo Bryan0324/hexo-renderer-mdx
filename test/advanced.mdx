@@ -1,0 +1,71 @@
+---
+title: Advanced MDX Features
+date: 2026-01-06
+tags:
+  - mdx
+  - react
+  - components
+---
+
+export const Button = ({ children, color = 'blue' }) => (
+  <button style={{ 
+    backgroundColor: color, 
+    color: 'white', 
+    padding: '10px 20px',
+    border: 'none',
+    borderRadius: '5px',
+    cursor: 'pointer'
+  }}>
+    {children}
+  </button>
+);
+
+export const Card = ({ title, children }) => (
+  <div style={{
+    border: '1px solid #ddd',
+    borderRadius: '8px',
+    padding: '20px',
+    marginBottom: '20px',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+  }}>
+    <h3>{title}</h3>
+    {children}
+  </div>
+);
+
+# Advanced MDX Features
+
+This demonstrates advanced MDX capabilities.
+
+## Custom Components
+
+<Button color="red">Click Me!</Button>
+
+<Button color="green">Another Button</Button>
+
+## Component Composition
+
+<Card title="Feature Card">
+  This is a card with **markdown** content inside!
+  
+  - Item 1
+  - Item 2
+</Card>
+
+## Dynamic Content
+
+Here are some fruits:
+
+<div>
+  {['apple', 'banana', 'cherry'].map((fruit, i) => (
+    <p key={i}>I love {fruit}s!</p>
+  ))}
+</div>
+
+## Inline Styles
+
+<span style={{ color: 'red', fontWeight: 'bold' }}>Red and bold text</span>
+
+## Conclusion
+
+MDX combines the best of Markdown and JSX!
