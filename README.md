@@ -320,7 +320,7 @@ npm install react react-dom @mdx-js/mdx --save
 
 ### For Maintainers
 
-This package uses automated publishing to npm via GitHub Actions.
+This package uses automated publishing to npm via GitHub Actions with **Trusted Publishing** (OIDC).
 
 **To publish a new version:**
 
@@ -343,16 +343,23 @@ This package uses automated publishing to npm via GitHub Actions.
 
 4. The GitHub Action will automatically:
    - Run tests
-   - Publish to npm with provenance
+   - Publish to npm with provenance using Trusted Publishing
    - Make the package publicly available
 
 **First-time setup:**
 
-Before publishing, you need to configure the `NPM_TOKEN` secret:
+Before publishing, you need to configure Trusted Publishing on npm:
 
-1. Generate an npm automation token at https://www.npmjs.com/settings/tokens
-2. Add it to GitHub repository secrets as `NPM_TOKEN`
-3. Ensure the workflow file has the correct permissions
+1. Go to https://www.npmjs.com/package/hexo-renderer-mdx/access
+2. Click "Publishing" → "Trusted Publishers"
+3. Add a new trusted publisher with:
+   - **Provider**: GitHub Actions
+   - **Repository owner**: Bryan0324
+   - **Repository name**: hexo-renderer-mdx
+   - **Workflow file**: `publish.yml`
+   - **Environment name**: (leave empty)
+
+No npm tokens required! Trusted Publishing uses OpenID Connect (OIDC) for secure authentication.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed publishing instructions.
 

@@ -89,22 +89,26 @@ When reporting issues, please include:
 
 ## Publishing (Maintainers Only)
 
-### Setup
+### Setup - Trusted Publishing
+
+This package uses **Trusted Publishing** (OIDC) for secure, token-free publishing to npm.
 
 1. **Create an npm account** at https://www.npmjs.com if you don't have one
 
-2. **Create an npm access token**:
-   - Go to https://www.npmjs.com/settings/YOUR_USERNAME/tokens
-   - Click "Generate New Token"
-   - Select "Automation" token type
-   - Copy the token
+2. **Configure Trusted Publishing on npm**:
+   - Publish the package manually first time: `npm publish --access public`
+   - Go to https://www.npmjs.com/package/hexo-renderer-mdx/access
+   - Navigate to "Publishing" → "Trusted Publishers"
+   - Click "Add trusted publisher"
+   - Fill in the details:
+     - **Provider**: GitHub Actions
+     - **Repository owner**: Bryan0324
+     - **Repository name**: hexo-renderer-mdx
+     - **Workflow file**: publish.yml
+     - **Environment name**: (leave empty)
+   - Click "Add"
 
-3. **Add the token to GitHub**:
-   - Go to repository Settings → Secrets and variables → Actions
-   - Click "New repository secret"
-   - Name: `NPM_TOKEN`
-   - Value: paste your npm token
-   - Click "Add secret"
+No npm tokens needed! The workflow uses OpenID Connect (OIDC) to authenticate securely.
 
 ### Publishing a New Version
 
@@ -133,7 +137,7 @@ When reporting issues, please include:
    - Checkout the code
    - Install dependencies
    - Run tests
-   - Publish to npm with provenance
+   - Publish to npm with provenance using Trusted Publishing
    - Make the package publicly available
 
 5. **Verify publication**:
