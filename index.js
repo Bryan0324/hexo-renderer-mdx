@@ -3,6 +3,7 @@
 const { compile } = require('@mdx-js/mdx');
 const { renderToString } = require('react-dom/server');
 const React = require('react');
+const fs = require('fs');
 
 /**
  * MDX Renderer for Hexo
@@ -22,10 +23,16 @@ async function mdxRenderer(data) {
   const { text, path } = data;
   
   try {
+    // Read the original file directly to bypass Hexo's template processing
+    let content;
+    try {
+      content = fs.readFileSync(path, 'utf8');
+    } catch (err) {
+      // If reading fails, fall back to the provided text
+      content = text;
+    }
+    
     // Strip YAML front matter if present
-    // Note: Hexo typically strips front matter before passing to renderers,
-    // but we handle it here as a safety measure for edge cases
-    let content = text;
     const frontMatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n/;
     const match = content.match(frontMatterRegex);
     
@@ -35,18 +42,23 @@ async function mdxRenderer(data) {
     }
     
     // Compile MDX to JavaScript with automatic JSX runtime
-    // Use development: true to get jsxDEV which properly handles inline style objects
     const compiled = await compile(content, {
       outputFormat: 'function-body',
-      development: true, // This ensures proper handling of JSX expressions
-      jsxImportSource: 'react'
+      development: false,
+      jsxImportSource: 'react',
+      format: 'mdx',
+      mdxExtensions: ['.mdx'],
+      // Explicitly set recma plugins to handle JSX expressions properly
+      remarkRehypeOptions: {
+        allowDangerousHtml: true
+      }
     });
 
     // Create a function from the compiled code
     const code = String(compiled);
     
-    // The compiled code expects the jsx-runtime (jsxDEV in development mode)
-    const jsxRuntime = require('react/jsx-dev-runtime');
+    // The compiled code expects the jsx-runtime
+    const jsxRuntime = require('react/jsx-runtime');
     
     // Create and execute the MDX module function
     // Note: Using new Function() here is safe because:
@@ -78,5 +90,8 @@ async function mdxRenderer(data) {
 
 /**
  * Register the MDX renderer with Hexo
+ * Note: Using disableNunjucks: true to prevent template processing of {{ }} syntax
  */
-hexo.extend.renderer.register('mdx', 'html', mdxRenderer, true);
+hexo.extend.renderer.register('mdx', 'html', mdxRenderer, {
+  disableNunjucks: true
+});
