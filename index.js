@@ -88,6 +88,11 @@ async function loadCompile() {
 async function mdxRenderer(data) {
   const { text, path: filePath } = data;
   
+  // Initialize dependencies Set for tracking imported component files
+  if (!data.dependencies) {
+    data.dependencies = new Set();
+  }
+  
   try {
     // Ensure Babel can handle JSX/TS imports from MDX files (e.g., local components).
     ensureBabelRegister(filePath);
@@ -171,6 +176,11 @@ async function mdxRenderer(data) {
 
       // Record mapping for hydration bundle (use filesystem path when available, otherwise the original specifier)
       componentsForHydration.push({ id: placeholderId, spec: fsPath || asString });
+
+      // Register component file as a dependency so Hexo watches it for changes
+      if (fsPath && data.dependencies) {
+        data.dependencies.add(fsPath);
+      }
 
       // Return an ES-like namespace with default export set to placeholder
       return Promise.resolve({ default: Placeholder });
@@ -263,6 +273,96 @@ async function mdxRenderer(data) {
  * Register the MDX renderer with Hexo
  * Note: Using disableNunjucks: true to prevent template processing of {{ }} syntax
  */
-hexo.extend.renderer.register('mdx', 'html', mdxRenderer, {
+const path = require('path');
+const componentDependencies = new Map(); // Map of component path -> Set of MDX files that import it
+
+// Wrap renderer to track component dependencies
+const originalMdxRenderer = mdxRenderer;
+async function mdxRendererWithTracking(data) {
+  const result = await originalMdxRenderer(data);
+  
+  // Track which components this MDX file depends on
+  if (data.dependencies && data.dependencies.size > 0) {
+    data.dependencies.forEach(componentPath => {
+      if (!componentDependencies.has(componentPath)) {
+        componentDependencies.set(componentPath, new Set());
+      }
+      componentDependencies.get(componentPath).add(data.path);
+    });
+  }
+  
+  return result;
+}
+
+hexo.extend.renderer.register('mdx', 'html', mdxRendererWithTracking, {
   disableNunjucks: true
+});
+
+/**
+ * Watch component files and trigger full site regeneration when they change
+ */
+let mdxComponentWatcher = null;
+
+hexo.extend.filter.register('after_init', function() {
+  // Set up file watcher for components after Hexo initializes
+  const sourceDir = path.join(hexo.source_dir, 'components');
+  
+  try {
+    // Use chokidar to watch the components directory
+    const chokidar = require('chokidar');
+    
+    if (mdxComponentWatcher) {
+      mdxComponentWatcher.close();
+    }
+    
+    mdxComponentWatcher = chokidar.watch(sourceDir, {
+      ignored: /node_modules|\.git/,
+      persistent: true,
+      delay: 500,
+      usePolling: true  // Enable polling for better reliability
+    });
+    
+    mdxComponentWatcher.on('change', (changedPath) => {
+      console.log(`\nINFO  Component file changed: ${changedPath}`);
+      console.log(`INFO  Clearing caches and triggering regeneration...`);
+      
+      // Clear the require cache for all components and Babel
+      Object.keys(require.cache).forEach(key => {
+        if (key.includes(sourceDir) || key.includes('source/components') || key.includes('.hexo-mdx-entry')) {
+          delete require.cache[key];
+        }
+      });
+      
+      // Delete the compiled entry directory to force recreation
+      const fs = require('fs');
+      const mdxEntryDir = path.join(hexo.base_dir, '.hexo-mdx-entry');
+      if (fs.existsSync(mdxEntryDir)) {
+        try {
+          fs.rmSync(mdxEntryDir, { recursive: true });
+        } catch (err) {
+          // Ignore cleanup errors
+        }
+      }
+      
+      // Invalidate Hexo's locals cache
+      if (hexo.locals) {
+        hexo.locals.invalidate();
+      }
+      
+      // Use hexo clean then hexo generate to force complete regeneration
+      process.nextTick(() => {
+        hexo.call('clean').then(() => {
+          return hexo.call('generate', {watch: false});
+        }).then(() => {
+          console.log('INFO  ✓ Regeneration complete - refresh your browser to see changes');
+        }).catch(err => {
+          console.warn('Regeneration error:', err.message);
+        });
+      });
+    });
+    
+    console.log('INFO  Component file watcher initialized');
+  } catch (err) {
+    console.warn('Component file watcher setup warning:', err.message);
+  }
 });
