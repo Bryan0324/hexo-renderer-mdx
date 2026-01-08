@@ -25,7 +25,11 @@
   },
   "homepage": "https://github.com/Bryan0324/hexo-renderer-mdx#readme",
   "dependencies": {
-    "@babel/register": "^7.28.3",
+    "@babel/register": "^7.25.0",
+    "@babel/core": "^7.25.0",
+    "@babel/plugin-syntax-dynamic-import": "^7.8.3",
+    "@babel/plugin-syntax-jsx": "^7.25.0",
+    "@babel/plugin-transform-react-jsx": "^7.25.0",
     "@mdx-js/mdx": "^3.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
