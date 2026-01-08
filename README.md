@@ -8,7 +8,8 @@ A [Hexo](https://hexo.io/) renderer plugin for [MDX](https://mdxjs.com/) - Markd
 - ⚛️ React component integration
 - 📝 Markdown compatibility
 - 🎨 Custom component support
-- 🔥 Fast compilation with @mdx-js/mdx
+- � ES6 import statements for external packages
+- �� Fast compilation with @mdx-js/mdx
 
 ## Installation
 
@@ -169,6 +170,31 @@ export const Alert = ({ children, type = 'info' }) => (
     <p key={framework}>I ❤️ {framework}</p>
   ))}
 </div>
+```
+
+**Import Statements** - Import external modules and packages:
+
+```mdx
+import React from 'react';
+import { format } from 'date-fns';
+
+<div>
+  Today's date: {format(new Date(), 'MMMM dd, yyyy')}
+</div>
+```
+
+You can also import local components or utilities:
+
+```mdx
+import MyCustomComponent from './components/MyCustomComponent';
+import { helper } from './utils/helpers';
+
+<MyCustomComponent data={helper()} />
+```
+
+**Note**: Make sure any packages you import are installed in your Hexo project:
+```bash
+npm install date-fns --save
 ```
 
 #### 5. Building and Deploying

@@ -4,6 +4,36 @@ const { renderToString } = require('react-dom/server');
 const React = require('react');
 const fs = require('fs');
 const { createRequire } = require('module');
+const { pathToFileURL, fileURLToPath } = require('url');
+
+let babelRegistered = false;
+function ensureBabelRegister(filePath) {
+  if (babelRegistered) return;
+  const localRequire = createRequire(filePath);
+  let babelRegister;
+  try {
+    babelRegister = localRequire('@babel/register');
+  } catch (errLocal) {
+    try {
+      babelRegister = require('@babel/register');
+    } catch (errGlobal) {
+      throw new Error(
+        'Failed to set up Babel register: please install @babel/register (and babel plugins) in your Hexo project or renderer package.'
+      );
+    }
+  }
+  babelRegister({
+    extensions: ['.js', '.jsx', '.ts', '.tsx'],
+    plugins: [
+      '@babel/plugin-syntax-dynamic-import',
+      ['@babel/plugin-transform-react-jsx', {
+        runtime: 'automatic'
+      }]
+    ],
+    ignore: [/node_modules/]
+  });
+  babelRegistered = true;
+}
 
 // Create a require for loading ESM modules
 let compile;
@@ -56,16 +86,19 @@ async function loadCompile() {
  * @returns {Promise<string>} The rendered HTML
  */
 async function mdxRenderer(data) {
-  const { text, path } = data;
+  const { text, path: filePath } = data;
   
   try {
+    // Ensure Babel can handle JSX/TS imports from MDX files (e.g., local components).
+    ensureBabelRegister(filePath);
+
     // Ensure compile function is loaded
     await loadCompile();
     
     // Read the original file directly to bypass Hexo's template processing
     let content;
     try {
-      content = fs.readFileSync(path, 'utf8');
+      content = fs.readFileSync(filePath, 'utf8');
     } catch (err) {
       // If reading fails, fall back to the provided text
       content = text;
@@ -85,6 +118,7 @@ async function mdxRenderer(data) {
     const compiled = await compile(content, {
       outputFormat: 'function-body',
       development: true,
+      baseUrl: pathToFileURL(filePath),
       // remarkRehypeOptions for markdown processing
       remarkRehypeOptions: {
         allowDangerousHtml: true
@@ -97,13 +131,47 @@ async function mdxRenderer(data) {
     // When development: true, the compiled code uses jsxDEV from react/jsx-dev-runtime
     const jsxDevRuntime = require('react/jsx-dev-runtime');
     
-    // Create and execute the MDX module function
-    // Note: Using new Function() here is safe because:
-    // 1. Input comes from MDX files in the user's Hexo project (not untrusted external input)
-    // 2. MDX compilation itself validates and sanitizes the content
-    // 3. This is a build-time operation, not runtime user input
-    const fn = new Function(code);
-    const mdxModule = fn.call(null, jsxDevRuntime);
+    // Replace dynamic imports with a shim that resolves relative to the MDX file and uses require to stay in CJS.
+    const toModuleNamespace = (mod) => {
+      // If it already looks like an ES module with a default export, return as-is
+      if (mod && typeof mod === 'object' && 'default' in mod) return mod;
+      // For CJS modules, wrap as ES module: spread first, then set default to ensure it's not overwritten
+      if (mod && typeof mod === 'object') {
+        return { ...mod, default: mod };
+      }
+      // For primitive or function values, just set as default
+      return { default: mod };
+    };
+    const dynamicImport = (specifier) => {
+      const asString = String(specifier);
+      const req = createRequire(filePath);
+      // Check if it's already a file:// URL string
+      if (asString.startsWith('file://')) {
+        try {
+          const fsPath = fileURLToPath(asString);
+          return Promise.resolve(toModuleNamespace(req(fsPath)));
+        } catch (err) {
+          // Re-throw with better error message
+          throw new Error(`Failed to require file:// URL: ${err.message}`);
+        }
+      }
+      try {
+        // Try to construct a URL to see if it's relative
+        const resolvedUrl = new URL(asString, pathToFileURL(filePath));
+        if (resolvedUrl.protocol === 'file:') {
+          return Promise.resolve(toModuleNamespace(req(fileURLToPath(resolvedUrl))));
+        }
+        return Promise.resolve(toModuleNamespace(req(asString)));
+      } catch (urlErr) {
+        // If URL construction failed, try bare require
+        return Promise.resolve(toModuleNamespace(req(asString)));
+      }
+    };
+
+    // Swap all occurrences of 'import(' (awaited or not) with our shim to avoid vm dynamic import callbacks.
+    const patchedCode = code.replace(/import\(/g, 'dynamicImport(');
+    const fn = new Function('jsxRuntime', 'dynamicImport', `return (async () => { ${patchedCode} })();`);
+    const mdxModule = await fn(jsxDevRuntime, dynamicImport);
     
     // The result has a default export which is the MDX component
     const MDXContent = mdxModule.default;
@@ -116,8 +184,10 @@ async function mdxRenderer(data) {
     return html;
   } catch (err) {
     // Provide more detailed error information
-    const errorMsg = `MDX compilation failed for ${path}: ${err.message}`;
+    const errorMsg = `MDX compilation failed for ${filePath}: ${err.message}`;
     console.error(errorMsg);
+    console.error('Full error stack:');
+    console.error(err.stack);
     if (err.position) {
       console.error(`Error at line ${err.position.start.line}, column ${err.position.start.column}`);
     }
