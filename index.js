@@ -142,30 +142,38 @@ async function mdxRenderer(data) {
       // For primitive or function values, just set as default
       return { default: mod };
     };
+    // Collect components used so we can hydrate them client-side
+    const componentsForHydration = [];
     const dynamicImport = (specifier) => {
       const asString = String(specifier);
       const req = createRequire(filePath);
-      // Check if it's already a file:// URL string
-      if (asString.startsWith('file://')) {
-        try {
-          const fsPath = fileURLToPath(asString);
-          return Promise.resolve(toModuleNamespace(req(fsPath)));
-        } catch (err) {
-          // Re-throw with better error message
-          throw new Error(`Failed to require file:// URL: ${err.message}`);
-        }
-      }
+
+      // Resolve a filesystem path for this specifier
+      let fsPath;
       try {
-        // Try to construct a URL to see if it's relative
-        const resolvedUrl = new URL(asString, pathToFileURL(filePath));
-        if (resolvedUrl.protocol === 'file:') {
-          return Promise.resolve(toModuleNamespace(req(fileURLToPath(resolvedUrl))));
+        if (asString.startsWith('file://')) {
+          fsPath = fileURLToPath(asString);
+        } else {
+          const resolvedUrl = new URL(asString, pathToFileURL(filePath));
+          if (resolvedUrl.protocol === 'file:') {
+            fsPath = fileURLToPath(resolvedUrl);
+          }
         }
-        return Promise.resolve(toModuleNamespace(req(asString)));
-      } catch (urlErr) {
-        // If URL construction failed, try bare require
-        return Promise.resolve(toModuleNamespace(req(asString)));
+      } catch (e) {
+        // ignore - will try bare require
       }
+
+      // Create a placeholder component for server-side rendering
+      const placeholderId = `mdx-cmp-${componentsForHydration.length + 1}`;
+      const Placeholder = (props) => {
+        return React.createElement('div', { 'data-mdx-component': placeholderId });
+      };
+
+      // Record mapping for hydration bundle (use filesystem path when available, otherwise the original specifier)
+      componentsForHydration.push({ id: placeholderId, spec: fsPath || asString });
+
+      // Return an ES-like namespace with default export set to placeholder
+      return Promise.resolve({ default: Placeholder });
     };
 
     // Swap all occurrences of 'import(' (awaited or not) with our shim to avoid vm dynamic import callbacks.
@@ -180,8 +188,64 @@ async function mdxRenderer(data) {
     const html = renderToString(
       React.createElement(MDXContent, {})
     );
+
+    // If there are components to hydrate, generate a client bundle using esbuild (if available)
+    let finalHtml = html;
+    if (componentsForHydration.length > 0) {
+      try {
+        const esbuild = require('esbuild');
+        const os = require('os');
+        const tmpdir = os.tmpdir();
+        const crypto = require('crypto');
+        const hash = crypto.createHash('md5').update(filePath).digest('hex').slice(0,8);
+        const outName = `mdx-hydrate-${hash}.js`;
+        const outDir = require('path').join(process.cwd(), 'source', 'assets');
+        const entryPath = require('path').join(process.cwd(), '.hexo-mdx-entry', `mdx-entry-${hash}.mjs`);
+
+        const imports = componentsForHydration.map((c, i) => {
+          // Convert absolute path to relative path from entry directory
+          let importPath = c.spec;
+          if (require('path').isAbsolute(importPath)) {
+            importPath = require('path').relative(require('path').dirname(entryPath), importPath);
+          }
+          // Normalize slashes for JS import
+          importPath = importPath.replace(/\\/g, '/');
+          // Ensure relative imports start with ./ or ../
+          if (!importPath.startsWith('.')) {
+            importPath = './' + importPath;
+          }
+          return `import C${i} from ${JSON.stringify(importPath)};`;
+        }).join('\n');
+
+        const mapping = componentsForHydration.map((c, i) => `  '${c.id}': C${i}`).join(',\n');
+
+        const entrySource = `import React from 'react';\nimport { hydrateRoot } from 'react-dom/client';\n\n// Make React available globally for imported components\nwindow.React = React;\n\n${imports}\n\nconst mapping = {\n${mapping}\n};\n\nObject.keys(mapping).forEach(id => {\n  const Comp = mapping[id];\n  const el = document.querySelector('[data-mdx-component="'+id+'"]');\n  if (el) {\n    hydrateRoot(el, React.createElement(Comp, {}));\n  }\n});\n`;
+
+        require('fs').mkdirSync(require('path').dirname(entryPath), { recursive: true });
+        require('fs').writeFileSync(entryPath, entrySource, 'utf8');
+        require('fs').mkdirSync(outDir, { recursive: true });
+
+        esbuild.buildSync({
+          entryPoints: [entryPath],
+          bundle: true,
+          format: 'esm',
+          outfile: require('path').join(outDir, outName),
+          platform: 'browser',
+          jsx: 'transform',
+          jsxFactory: 'React.createElement',
+          jsxFragment: 'React.Fragment',
+          minify: false,
+          absWorkingDir: process.cwd(),
+          loader: { '.jsx': 'jsx', '.js': 'js', '.mjs': 'js' }
+        });
+
+        finalHtml = `<div id="mdx-root-${hash}">${html}</div><script type="module" src="/assets/${outName}"></script>`;
+      } catch (err) {
+        console.error('MDX hydration bundle failed:', err.message);
+      }
+    }
     
-    return html;
+    return finalHtml;
   } catch (err) {
     // Provide more detailed error information
     const errorMsg = `MDX compilation failed for ${filePath}: ${err.message}`;
