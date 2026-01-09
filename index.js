@@ -347,6 +347,38 @@ function bundleEntryToPublic() {
   }
 }
 
+// Bundle a single entry by its MDX file hash (targets only one output)
+function bundleEntryByHash(hash) {
+  try {
+    const esbuild = require('esbuild');
+    const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
+    const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : path.join(projectRoot, 'public');
+    const entryPath = path.join(publicDir, '.hexo-mdx-entry', `mdx-entry-${hash}.mjs`);
+    const outDir = path.join(publicDir, 'assets');
+    const outName = `mdx-hydrate-${hash}.js`;
+
+    if (!fs.existsSync(entryPath)) {
+      return; // No entry for this hash yet
+    }
+
+    fs.mkdirSync(outDir, { recursive: true });
+    esbuild.buildSync({
+      entryPoints: [entryPath],
+      bundle: true,
+      format: 'iife',
+      outfile: path.join(outDir, outName),
+      platform: 'browser',
+      target: 'es2017',
+      minify: false,
+      absWorkingDir: process.cwd(),
+      loader: { '.jsx': 'jsx', '.js': 'js', '.mjs': 'js' }
+    });
+    console.log(`INFO  ✓ Bundled entry to ${path.join(outDir, outName)}`);
+  } catch (err) {
+    console.warn(`INFO  Bundle error for hash ${hash}: ${err && err.message}`);
+  }
+}
+
 // Persist component -> [mdxFiles] mapping into the public dir so it ships with the site
 function saveComponentPathJson() {
   try {
@@ -520,8 +552,9 @@ hexo.extend.filter.register('after_init', function() {
           }
           if (!failed) {
             console.log('INFO  ✓ Per-file regeneration complete');
-            // Bundle the entry after regeneration
-            bundleEntryToPublic();
+            // Bundle only the affected entries by their file hash
+            const hashes = Array.from(new Set(affectedMdxFiles.map(f => crypto.createHash('md5').update(f).digest('hex').slice(0, 8))));
+            hashes.forEach(h => bundleEntryByHash(h));
             // Resume watcher
             mdxComponentWatcher = chokidar.watch(sourceDir, { ignored: /node_modules|\.git/, persistent: true });
             mdxComponentWatcher.on('change', handleComponentChange);
@@ -535,8 +568,11 @@ hexo.extend.filter.register('after_init', function() {
           return hexo.call('generate', {watch: false});
         }).then(() => {
           console.log('INFO  ✓ Regeneration complete');
-          // Bundle the entry after regeneration
-          bundleEntryToPublic();
+          // Bundle only the affected entries (if any were identified)
+          if (affectedMdxFiles.length > 0) {
+            const hashes = Array.from(new Set(affectedMdxFiles.map(f => crypto.createHash('md5').update(f).digest('hex').slice(0, 8))));
+            hashes.forEach(h => bundleEntryByHash(h));
+          }
           console.log('INFO  ✓ Refresh your browser to see changes');
           // Resume watcher
           mdxComponentWatcher = chokidar.watch(sourceDir, { ignored: /node_modules|\\.git/, persistent: true });
