@@ -5,6 +5,7 @@ const React = require('react');
 const fs = require('fs');
 const { createRequire } = require('module');
 const { pathToFileURL, fileURLToPath } = require('url');
+const crypto = require('crypto');
 
 let babelRegistered = false;
 function ensureBabelRegister(filePath) {
@@ -99,6 +100,9 @@ async function mdxRenderer(data) {
 
     // Ensure compile function is loaded
     await loadCompile();
+
+    // Stable per-file hash to namespace hydration ids and bundles
+    const fileHash = crypto.createHash('md5').update(filePath).digest('hex').slice(0, 8);
     
     // Read the original file directly to bypass Hexo's template processing
     let content;
@@ -169,7 +173,7 @@ async function mdxRenderer(data) {
       }
 
       // Create a placeholder component for server-side rendering
-      const placeholderId = `mdx-cmp-${componentsForHydration.length + 1}`;
+      const placeholderId = `mdx-cmp-${fileHash}-${componentsForHydration.length + 1}`;
       const Placeholder = (props) => {
         return React.createElement('div', { 'data-mdx-component': placeholderId });
       };
@@ -206,8 +210,7 @@ async function mdxRenderer(data) {
         const esbuild = require('esbuild');
         const os = require('os');
         const tmpdir = os.tmpdir();
-        const crypto = require('crypto');
-        const hash = crypto.createHash('md5').update(filePath).digest('hex').slice(0,8);
+        const hash = fileHash;
         const outName = `mdx-hydrate-${hash}.js`;
         // Output compiled hydration bundle and temporary entry into the site's public directory
         const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
@@ -296,52 +299,49 @@ function bundleEntryToPublic() {
       }
     });
     
-    // Find the entry file in public/.hexo-mdx-entry
+    // Find all entry files in public/.hexo-mdx-entry and bundle each one
     const entryDir = path.join(publicDir, '.hexo-mdx-entry');
     if (!fs.existsSync(entryDir)) {
       return; // No entry generated, skip bundling
     }
     
-    // Get the most recent entry file
-    let entryFile = null;
+    // Get all entry files
+    let entryFiles = [];
     try {
       const files = fs.readdirSync(entryDir);
-      if (files.length > 0) {
-        // Sort by modification time and take the latest
-        const sorted = files.map(f => ({
-          name: f,
-          time: fs.statSync(path.join(entryDir, f)).mtime.getTime()
-        })).sort((a, b) => b.time - a.time);
-        entryFile = sorted[0].name;
-      }
+      entryFiles = files.filter(f => f.startsWith('mdx-entry-') && f.endsWith('.mjs'));
     } catch (e) {
       return; // Error reading entry dir, skip
     }
     
-    if (!entryFile) return;
+    if (entryFiles.length === 0) return;
     
-    const entryPath = path.join(entryDir, entryFile);
-    const hash = entryFile.match(/mdx-entry-([a-f0-9]+)/)?.[1] || 'unknown';
-    const outName = `mdx-hydrate-${hash}.js`;
     const outDir = path.join(publicDir, 'assets');
+    fs.mkdirSync(outDir, { recursive: true });
     
-    try {
-      fs.mkdirSync(outDir, { recursive: true });
-      esbuild.buildSync({
-        entryPoints: [entryPath],
-        bundle: true,
-        format: 'iife',
-        outfile: path.join(outDir, outName),
-        platform: 'browser',
-        target: 'es2017',
-        minify: false,
-        absWorkingDir: process.cwd(),
-        loader: { '.jsx': 'jsx', '.js': 'js', '.mjs': 'js' }
-      });
-      console.log(`INFO  ✓ Bundled entry to ${path.join(outDir, outName)}`);
-    } catch (err) {
-      console.warn(`INFO  Bundle error: ${err.message}`);
-    }
+    // Bundle each entry file individually
+    entryFiles.forEach(entryFile => {
+      const entryPath = path.join(entryDir, entryFile);
+      const hash = entryFile.match(/mdx-entry-([a-f0-9]+)/)?.[1] || 'unknown';
+      const outName = `mdx-hydrate-${hash}.js`;
+      
+      try {
+        esbuild.buildSync({
+          entryPoints: [entryPath],
+          bundle: true,
+          format: 'iife',
+          outfile: path.join(outDir, outName),
+          platform: 'browser',
+          target: 'es2017',
+          minify: false,
+          absWorkingDir: process.cwd(),
+          loader: { '.jsx': 'jsx', '.js': 'js', '.mjs': 'js' }
+        });
+        console.log(`INFO  ✓ Bundled entry to ${path.join(outDir, outName)}`);
+      } catch (err) {
+        console.warn(`INFO  Bundle error for ${entryFile}: ${err.message}`);
+      }
+    });
   } catch (err) {
     // Silently skip if esbuild is unavailable
   }
