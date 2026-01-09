@@ -8,8 +8,8 @@ A [Hexo](https://hexo.io/) renderer plugin for [MDX](https://mdxjs.com/) - Markd
 - ⚛️ React component integration
 - 📝 Markdown compatibility
 - 🎨 Custom component support
-- � ES6 import statements for external packages
-- �� Fast compilation with @mdx-js/mdx
+- 📁 ES6 import statements for external packages
+- ⚡ Fast compilation with @mdx-js/mdx
 - 🔄 Automatic hydration bundle rebuilds on `hexo generate` and when components change during `hexo server`
 
 ## Installation

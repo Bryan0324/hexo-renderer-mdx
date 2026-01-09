@@ -441,8 +441,10 @@ if (
   hexo.env && hexo.env.cmd === 'server'
 ) {
 hexo.extend.filter.register('after_init', function() {
-  // Set up file watcher for components after Hexo initializes
+  // Set up file watcher for component paths from the JSON mapping
   const sourceDir = path.join(hexo.source_dir, 'components');
+  const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
+  const componentPathJsonPath = path.join(projectRoot, 'hexo-renderer-mdx.component-path.json');
   
   // Only initialize the persistent watcher during `hexo server` runs.
   // For other commands (clean/generate), skip watcher to allow the process to exit.
@@ -450,34 +452,72 @@ hexo.extend.filter.register('after_init', function() {
     return;
   }
 
-  try {
-    // Use chokidar to watch the components directory
+  // Function to read component paths from JSON and extract keys
+  function getComponentPathsFromJson() {
+    try {
+      if (fs.existsSync(componentPathJsonPath)) {
+        const mapping = JSON.parse(fs.readFileSync(componentPathJsonPath, 'utf8')) || {};
+        return Object.keys(mapping).filter(p => fs.existsSync(p));
+      }
+    } catch (e) {
+      // ignore parse/read errors
+    }
+    return [];
+  }
+
+  // Function to recreate the watcher with current component paths
+  function recreateWatcher() {
     if (mdxComponentWatcher) {
       mdxComponentWatcher.close();
     }
+
+    const componentPaths = getComponentPathsFromJson();
     
-    mdxComponentWatcher = chokidar.watch(sourceDir, {
-      ignored: /node_modules|\.git/,
-      persistent: true
-    });
+    // Watch both the component files and the JSON mapping file itself
+    const pathsToWatch = [...componentPaths, componentPathJsonPath];
     
-    console.log(`INFO  Watching components directory: ${sourceDir}`);
-    
-    // Add event listeners for debugging
-    mdxComponentWatcher.on('ready', () => {
-      console.log('INFO  Watcher ready, monitoring for changes...');
-    });
-    
-    mdxComponentWatcher.on('error', (error) => {
-      console.error('INFO  Watcher error:', error);
-    });
-    
-    mdxComponentWatcher.on('all', (event, path) => {
-      if (event === 'change' || event === 'add' || event === 'unlink') {
-        console.log(`INFO  Watcher event: ${event} - ${path}`);
-      }
-    });
-    
+    if (pathsToWatch.length === 0) {
+      console.log(`INFO  No component paths to watch yet`);
+      return;
+    }
+
+    try {
+      mdxComponentWatcher = chokidar.watch(pathsToWatch, {
+        ignored: /node_modules|\.git/,
+        persistent: true
+      });
+      
+      console.log(`INFO  Watching ${componentPaths.length} component path(s)`);
+      
+      // Add event listeners for debugging
+      mdxComponentWatcher.on('ready', () => {
+        console.log('INFO  Watcher ready, monitoring for changes...');
+      });
+      
+      mdxComponentWatcher.on('error', (error) => {
+        console.error('INFO  Watcher error:', error);
+      });
+      
+      mdxComponentWatcher.on('all', (event, watchedPath) => {
+        if (event === 'change' || event === 'add' || event === 'unlink') {
+          console.log(`INFO  Watcher event: ${event} - ${watchedPath}`);
+          
+          // If the JSON mapping file was changed, update the watcher
+          if (watchedPath === componentPathJsonPath && (event === 'change' || event === 'add')) {
+            console.log(`INFO  Component mapping updated, refreshing watched paths...`);
+            process.nextTick(() => {
+              recreateWatcher();
+            });
+            return;
+          }
+        }
+      });
+    } catch (err) {
+      console.warn('Failed to create component watcher:', err.message);
+    }
+  }
+
+  try {
     const handleComponentChange = (changedPath) => {
       console.log(`\nINFO  ⚡ Component file changed: ${changedPath}`);
       console.log(`INFO  Clearing caches and triggering regeneration...`);
@@ -487,7 +527,7 @@ hexo.extend.filter.register('after_init', function() {
 
       // Clear the require cache for all components and Babel
       Object.keys(require.cache).forEach(key => {
-        if (key.includes(sourceDir) || key.includes('source/components') || key.includes('.hexo-mdx-entry')) {
+        if (key.includes('source/components') || key.includes('.hexo-mdx-entry') || key.includes('source\\components')) {
           delete require.cache[key];
         }
       });
@@ -563,8 +603,7 @@ hexo.extend.filter.register('after_init', function() {
             const hashes = Array.from(new Set(affectedMdxFiles.map(f => crypto.createHash('md5').update(f).digest('hex').slice(0, 8))));
             hashes.forEach(h => bundleEntryByHash(h));
             // Resume watcher
-            mdxComponentWatcher = chokidar.watch(sourceDir, { ignored: /node_modules|\.git/, persistent: true });
-            mdxComponentWatcher.on('change', handleComponentChange);
+            recreateWatcher();
             return;
           }
           // Fallback to full clean+generate below
@@ -582,13 +621,11 @@ hexo.extend.filter.register('after_init', function() {
           }
           console.log('INFO  ✓ Refresh your browser to see changes');
           // Resume watcher
-          mdxComponentWatcher = chokidar.watch(sourceDir, { ignored: /node_modules|\\.git/, persistent: true });
-          mdxComponentWatcher.on('change', handleComponentChange);
+          recreateWatcher();
         }).catch(err => {
           console.warn('Regeneration error:', err.message);
           // Resume watcher even on error
-          mdxComponentWatcher = chokidar.watch(sourceDir, { ignored: /node_modules|\\.git/, persistent: true });
-          mdxComponentWatcher.on('change', handleComponentChange);
+          recreateWatcher();
         });
       });
     };
@@ -599,6 +636,9 @@ hexo.extend.filter.register('after_init', function() {
   } catch (err) {
     console.warn('Component file watcher setup warning:', err.message);
   }
+
+  // Initialize the watcher for the first time
+  recreateWatcher();
 });
 }
 
