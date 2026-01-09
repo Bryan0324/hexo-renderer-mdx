@@ -10,6 +10,7 @@ A [Hexo](https://hexo.io/) renderer plugin for [MDX](https://mdxjs.com/) - Markd
 - 🎨 Custom component support
 - � ES6 import statements for external packages
 - �� Fast compilation with @mdx-js/mdx
+- 🔄 Automatic hydration bundle rebuilds on `hexo generate` and when components change during `hexo server`
 
 ## Installation
 
@@ -210,6 +211,14 @@ hexo deploy
 ```
 
 The MDX files are compiled to static HTML - no JavaScript runtime needed on your site!
+
+#### Client-side hydration bundles (auto-built)
+
+If your MDX imports local React components, the renderer will emit a hydration entry in `public/.hexo-mdx-entry/` and automatically bundle it to `public/assets/mdx-hydrate-*.js`.
+
+- `hexo generate` runs bundling automatically after generation; no manual esbuild step is required.
+- During `hexo server`, component edits trigger targeted regeneration and bundling so the client asset stays fresh.
+- Avoid keeping old `mdx-hydrate-*.js` files in `source/assets/`; Hexo would copy them into `public/assets` and overwrite the freshly bundled output.
 
 ## Usage
 

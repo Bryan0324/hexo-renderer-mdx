@@ -209,8 +209,11 @@ async function mdxRenderer(data) {
         const crypto = require('crypto');
         const hash = crypto.createHash('md5').update(filePath).digest('hex').slice(0,8);
         const outName = `mdx-hydrate-${hash}.js`;
-        const outDir = require('path').join(process.cwd(), 'source', 'assets');
-        const entryPath = require('path').join(process.cwd(), '.hexo-mdx-entry', `mdx-entry-${hash}.mjs`);
+        // Output compiled hydration bundle and temporary entry into the site's public directory
+        const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
+        const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : require('path').join(projectRoot, 'public');
+        const outDir = require('path').join(publicDir, 'assets');
+        const entryPath = require('path').join(publicDir, '.hexo-mdx-entry', `mdx-entry-${hash}.mjs`);
 
         const imports = componentsForHydration.map((c, i) => {
           // Convert absolute path to relative path from entry directory
@@ -249,6 +252,7 @@ async function mdxRenderer(data) {
           loader: { '.jsx': 'jsx', '.js': 'js', '.mjs': 'js' }
         });
 
+        // Hydration bundle is placed under /assets in the public dir
         finalHtml = `<div id="mdx-root-${hash}">${html}</div><script type="module" src="/assets/${outName}"></script>`;
       } catch (err) {
         console.error('MDX hydration bundle failed:', err.message);
@@ -274,7 +278,102 @@ async function mdxRenderer(data) {
  * Note: Using disableNunjucks: true to prevent template processing of {{ }} syntax
  */
 const path = require('path');
+const chokidar = require('chokidar');
 const componentDependencies = new Map(); // Map of component path -> Set of MDX files that import it
+
+// Bundle the entry file with esbuild to create the hydration client bundle
+function bundleEntryToPublic() {
+  try {
+    const esbuild = require('esbuild');
+    const crypto = require('crypto');
+    const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
+    const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : path.join(projectRoot, 'public');
+    
+    // Clear require cache for components before bundling to ensure fresh imports
+    Object.keys(require.cache).forEach(key => {
+      if (key.includes('source/components') || key.includes('source\\components')) {
+        delete require.cache[key];
+      }
+    });
+    
+    // Find the entry file in public/.hexo-mdx-entry
+    const entryDir = path.join(publicDir, '.hexo-mdx-entry');
+    if (!fs.existsSync(entryDir)) {
+      return; // No entry generated, skip bundling
+    }
+    
+    // Get the most recent entry file
+    let entryFile = null;
+    try {
+      const files = fs.readdirSync(entryDir);
+      if (files.length > 0) {
+        // Sort by modification time and take the latest
+        const sorted = files.map(f => ({
+          name: f,
+          time: fs.statSync(path.join(entryDir, f)).mtime.getTime()
+        })).sort((a, b) => b.time - a.time);
+        entryFile = sorted[0].name;
+      }
+    } catch (e) {
+      return; // Error reading entry dir, skip
+    }
+    
+    if (!entryFile) return;
+    
+    const entryPath = path.join(entryDir, entryFile);
+    const hash = entryFile.match(/mdx-entry-([a-f0-9]+)/)?.[1] || 'unknown';
+    const outName = `mdx-hydrate-${hash}.js`;
+    const outDir = path.join(publicDir, 'assets');
+    
+    try {
+      fs.mkdirSync(outDir, { recursive: true });
+      esbuild.buildSync({
+        entryPoints: [entryPath],
+        bundle: true,
+        format: 'iife',
+        outfile: path.join(outDir, outName),
+        platform: 'browser',
+        target: 'es2017',
+        minify: false,
+        absWorkingDir: process.cwd(),
+        loader: { '.jsx': 'jsx', '.js': 'js', '.mjs': 'js' }
+      });
+      console.log(`INFO  ✓ Bundled entry to ${path.join(outDir, outName)}`);
+    } catch (err) {
+      console.warn(`INFO  Bundle error: ${err.message}`);
+    }
+  } catch (err) {
+    // Silently skip if esbuild is unavailable
+  }
+}
+
+// Persist component -> [mdxFiles] mapping to project root so it survives hexo clean
+function saveComponentPathJson() {
+  try {
+    const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
+    const outPath = path.join(projectRoot, 'hexo-renderer-mdx.component-path.json');
+    const obj = {};
+    componentDependencies.forEach((mdxSet, compPath) => {
+      try {
+        obj[compPath] = Array.from(mdxSet);
+      } catch (e) {
+        obj[compPath] = [];
+      }
+    });
+    fs.writeFileSync(outPath, JSON.stringify(obj, null, 2), 'utf8');
+    // Also write into the public directory so it is deployed with the site when generated
+    try {
+      const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : path.join(projectRoot, 'public');
+      const publicOut = path.join(publicDir, 'hexo-renderer-mdx.component-path.json');
+      fs.mkdirSync(publicDir, { recursive: true });
+      fs.writeFileSync(publicOut, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (e) {
+      // ignore public write errors
+    }
+  } catch (err) {
+    console.warn('Could not write component-path JSON:', err && err.message);
+  }
+}
 
 // Wrap renderer to track component dependencies
 const originalMdxRenderer = mdxRenderer;
@@ -289,6 +388,12 @@ async function mdxRendererWithTracking(data) {
       }
       componentDependencies.get(componentPath).add(data.path);
     });
+    // Persist mapping to JSON so it's available across runs and survives hexo clean
+    try {
+      saveComponentPathJson();
+    } catch (e) {
+      // ignore
+    }
   }
   
   return result;
@@ -307,32 +412,54 @@ hexo.extend.filter.register('after_init', function() {
   // Set up file watcher for components after Hexo initializes
   const sourceDir = path.join(hexo.source_dir, 'components');
   
+  // Only initialize the persistent watcher during `hexo server` runs.
+  // For other commands (clean/generate), skip watcher to allow the process to exit.
+  if (!hexo || !hexo.env || hexo.env.cmd !== 'server') {
+    return;
+  }
+
   try {
     // Use chokidar to watch the components directory
-    const chokidar = require('chokidar');
-    
     if (mdxComponentWatcher) {
       mdxComponentWatcher.close();
     }
     
     mdxComponentWatcher = chokidar.watch(sourceDir, {
       ignored: /node_modules|\.git/,
-      persistent: true,
-      delay: 500,
-      usePolling: true  // Enable polling for better reliability
+      persistent: true
     });
     
-    mdxComponentWatcher.on('change', (changedPath) => {
-      console.log(`\nINFO  Component file changed: ${changedPath}`);
+    console.log(`INFO  Watching components directory: ${sourceDir}`);
+    
+    // Add event listeners for debugging
+    mdxComponentWatcher.on('ready', () => {
+      console.log('INFO  Watcher ready, monitoring for changes...');
+    });
+    
+    mdxComponentWatcher.on('error', (error) => {
+      console.error('INFO  Watcher error:', error);
+    });
+    
+    mdxComponentWatcher.on('all', (event, path) => {
+      if (event === 'change' || event === 'add' || event === 'unlink') {
+        console.log(`INFO  Watcher event: ${event} - ${path}`);
+      }
+    });
+    
+    const handleComponentChange = (changedPath) => {
+      console.log(`\nINFO  ⚡ Component file changed: ${changedPath}`);
       console.log(`INFO  Clearing caches and triggering regeneration...`);
-      
+
+      // PAUSE the watcher to prevent it from detecting the file deletions during regeneration
+      try { mdxComponentWatcher.close(); } catch (e) {}
+
       // Clear the require cache for all components and Babel
       Object.keys(require.cache).forEach(key => {
         if (key.includes(sourceDir) || key.includes('source/components') || key.includes('.hexo-mdx-entry')) {
           delete require.cache[key];
         }
       });
-      
+
       // Delete the compiled entry directory to force recreation
       const fs = require('fs');
       const mdxEntryDir = path.join(hexo.base_dir, '.hexo-mdx-entry');
@@ -343,26 +470,122 @@ hexo.extend.filter.register('after_init', function() {
           // Ignore cleanup errors
         }
       }
-      
+
       // Invalidate Hexo's locals cache
       if (hexo.locals) {
         hexo.locals.invalidate();
       }
-      
-      // Use hexo clean then hexo generate to force complete regeneration
-      process.nextTick(() => {
+
+      // Read component-path JSON and try to rerender only affected MDX files
+      const mappingPath = path.join(hexo.base_dir || process.cwd(), 'hexo-renderer-mdx.component-path.json');
+      let mapping = null;
+      try {
+        if (fs.existsSync(mappingPath)) {
+          mapping = JSON.parse(fs.readFileSync(mappingPath, 'utf8')) || null;
+        }
+      } catch (e) {
+        mapping = null;
+      }
+
+      const normalize = p => path.resolve(p).split(path.sep).join(path.sep);
+      const normalizedChanged = normalize(changedPath);
+
+      let affectedMdxFiles = [];
+      if (mapping) {
+        Object.keys(mapping).forEach(compPath => {
+          const normalizedComp = normalize(compPath);
+          if (
+            normalizedChanged === normalizedComp ||
+            normalizedChanged.startsWith(normalizedComp + path.sep) ||
+            normalizedComp.startsWith(normalizedChanged + path.sep)
+          ) {
+            const arr = mapping[compPath] || [];
+            arr.forEach(m => { if (m && affectedMdxFiles.indexOf(m) === -1) affectedMdxFiles.push(m); });
+          }
+        });
+      }
+
+      // If we found affected files, try to rerender them individually; otherwise fallback to full clean + generate
+      process.nextTick(async () => {
+        if (affectedMdxFiles.length > 0) {
+          console.log(`INFO  Rerendering ${affectedMdxFiles.length} affected MDX file(s)...`);
+          let failed = false;
+          for (const mdxFile of affectedMdxFiles) {
+            try {
+              // Best-effort: try to call a targeted generate if available; fall back to full generate on failure
+              await hexo.call('generate', { watch: false, file: mdxFile }).catch(() => { throw new Error('per-file generate unsupported'); });
+            } catch (err) {
+              failed = true;
+              break;
+            }
+          }
+          if (!failed) {
+            console.log('INFO  ✓ Per-file regeneration complete');
+            // Bundle the entry after regeneration
+            bundleEntryToPublic();
+            // Resume watcher
+            mdxComponentWatcher = chokidar.watch(sourceDir, { ignored: /node_modules|\.git/, persistent: true });
+            mdxComponentWatcher.on('change', handleComponentChange);
+            return;
+          }
+          // Fallback to full clean+generate below
+        }
+
+        // Fallback: full clean + generate
         hexo.call('clean').then(() => {
           return hexo.call('generate', {watch: false});
         }).then(() => {
-          console.log('INFO  ✓ Regeneration complete - refresh your browser to see changes');
+          console.log('INFO  ✓ Regeneration complete');
+          // Bundle the entry after regeneration
+          bundleEntryToPublic();
+          console.log('INFO  ✓ Refresh your browser to see changes');
+          // Resume watcher
+          mdxComponentWatcher = chokidar.watch(sourceDir, { ignored: /node_modules|\\.git/, persistent: true });
+          mdxComponentWatcher.on('change', handleComponentChange);
         }).catch(err => {
           console.warn('Regeneration error:', err.message);
+          // Resume watcher even on error
+          mdxComponentWatcher = chokidar.watch(sourceDir, { ignored: /node_modules|\\.git/, persistent: true });
+          mdxComponentWatcher.on('change', handleComponentChange);
         });
       });
-    });
+    };
+    
+    mdxComponentWatcher.on('change', handleComponentChange);
     
     console.log('INFO  Component file watcher initialized');
   } catch (err) {
     console.warn('Component file watcher setup warning:', err.message);
   }
 });
+
+// Close watcher when Hexo exits to allow process to terminate properly
+hexo.on('exit', function() {
+  if (mdxComponentWatcher) {
+    mdxComponentWatcher.close();
+  }
+});
+
+// Ensure component-path JSON is placed into public when site is generated,
+// and bundle the entry if one was created during rendering.
+try {
+  hexo.extend.filter.register('after_generate', function() {
+    try {
+      const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
+      const src = path.join(projectRoot, 'hexo-renderer-mdx.component-path.json');
+      const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : path.join(projectRoot, 'public');
+      const dest = path.join(publicDir, 'hexo-renderer-mdx.component-path.json');
+      if (fs.existsSync(src)) {
+        fs.mkdirSync(publicDir, { recursive: true });
+        fs.copyFileSync(src, dest);
+      }
+      
+      // Bundle the entry file to produce the hydration client bundle
+      bundleEntryToPublic();
+    } catch (e) {
+      // ignore
+    }
+  });
+} catch (e) {
+  // ignore if filter registration not available
+}
