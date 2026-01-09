@@ -432,7 +432,14 @@ hexo.extend.renderer.register('mdx', 'html', mdxRendererWithTracking, {
  * Watch component files and trigger full site regeneration when they change
  */
 let mdxComponentWatcher = null;
-
+// Only register watcher in real Hexo server runs
+if (
+  hexo &&
+  hexo.extend &&
+  hexo.extend.filter &&
+  typeof hexo.extend.filter.register === 'function' &&
+  hexo.env && hexo.env.cmd === 'server'
+) {
 hexo.extend.filter.register('after_init', function() {
   // Set up file watcher for components after Hexo initializes
   const sourceDir = path.join(hexo.source_dir, 'components');
@@ -593,34 +600,54 @@ hexo.extend.filter.register('after_init', function() {
     console.warn('Component file watcher setup warning:', err.message);
   }
 });
+}
 
 // Close watcher when Hexo exits to allow process to terminate properly
-hexo.on('exit', function() {
-  if (mdxComponentWatcher) {
-    mdxComponentWatcher.close();
-  }
-});
+if (hexo && typeof hexo.on === 'function') {
+  hexo.on('exit', function() {
+    if (mdxComponentWatcher) {
+      mdxComponentWatcher.close();
+    }
+  });
+}
 
 // Ensure component-path JSON is placed into public when site is generated,
 // and bundle the entry if one was created during rendering.
 try {
-  hexo.extend.filter.register('after_generate', function() {
-    try {
-      const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
-      const src = path.join(projectRoot, 'hexo-renderer-mdx.component-path.json');
-      const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : path.join(projectRoot, 'public');
-      const dest = path.join(publicDir, 'hexo-renderer-mdx.component-path.json');
-      if (fs.existsSync(src)) {
-        fs.mkdirSync(publicDir, { recursive: true });
-        fs.copyFileSync(src, dest);
+  if (
+    hexo &&
+    hexo.extend &&
+    hexo.extend.filter &&
+    typeof hexo.extend.filter.register === 'function'
+  ) {
+    hexo.extend.filter.register('after_generate', function() {
+      try {
+        const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
+        const src = path.join(projectRoot, 'hexo-renderer-mdx.component-path.json');
+        const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : path.join(projectRoot, 'public');
+        const dest = path.join(publicDir, 'hexo-renderer-mdx.component-path.json');
+        if (fs.existsSync(src)) {
+          fs.mkdirSync(publicDir, { recursive: true });
+          fs.copyFileSync(src, dest);
+        }
+        
+        // Bundle the entry file to produce the hydration client bundle
+        bundleEntryToPublic();
+      } catch (e) {
+        // ignore
       }
-      
-      // Bundle the entry file to produce the hydration client bundle
-      bundleEntryToPublic();
-    } catch (e) {
-      // ignore
-    }
-  });
+    });
+  }
 } catch (e) {
   // ignore if filter registration not available
+}
+
+// Export renderer functions for tests and direct usage outside Hexo
+try {
+  module.exports = {
+    mdxRenderer,
+    mdxRendererWithTracking
+  };
+} catch (e) {
+  // ignore export errors in unusual runtimes
 }
