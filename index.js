@@ -347,11 +347,12 @@ function bundleEntryToPublic() {
   }
 }
 
-// Persist component -> [mdxFiles] mapping to project root so it survives hexo clean
+// Persist component -> [mdxFiles] mapping into the public dir so it ships with the site
 function saveComponentPathJson() {
   try {
     const projectRoot = hexo && hexo.base_dir ? hexo.base_dir : process.cwd();
-    const outPath = path.join(projectRoot, 'hexo-renderer-mdx.component-path.json');
+    const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : path.join(projectRoot, 'public');
+    const publicOut = path.join(publicDir, 'hexo-renderer-mdx.component-path.json');
     const obj = {};
     componentDependencies.forEach((mdxSet, compPath) => {
       try {
@@ -360,16 +361,8 @@ function saveComponentPathJson() {
         obj[compPath] = [];
       }
     });
-    fs.writeFileSync(outPath, JSON.stringify(obj, null, 2), 'utf8');
-    // Also write into the public directory so it is deployed with the site when generated
-    try {
-      const publicDir = (hexo && hexo.public_dir) ? hexo.public_dir : path.join(projectRoot, 'public');
-      const publicOut = path.join(publicDir, 'hexo-renderer-mdx.component-path.json');
-      fs.mkdirSync(publicDir, { recursive: true });
-      fs.writeFileSync(publicOut, JSON.stringify(obj, null, 2), 'utf8');
-    } catch (e) {
-      // ignore public write errors
-    }
+    fs.mkdirSync(publicDir, { recursive: true });
+    fs.writeFileSync(publicOut, JSON.stringify(obj, null, 2), 'utf8');
   } catch (err) {
     console.warn('Could not write component-path JSON:', err && err.message);
   }
@@ -476,15 +469,21 @@ hexo.extend.filter.register('after_init', function() {
         hexo.locals.invalidate();
       }
 
-      // Read component-path JSON and try to rerender only affected MDX files
-      const mappingPath = path.join(hexo.base_dir || process.cwd(), 'hexo-renderer-mdx.component-path.json');
+      // Read component-path JSON (prefer the copy in public) and try to rerender only affected MDX files
+      const mappingCandidates = [
+        path.join((hexo && hexo.public_dir) ? hexo.public_dir : path.join(hexo.base_dir || process.cwd(), 'public'), 'hexo-renderer-mdx.component-path.json'),
+        path.join(hexo.base_dir || process.cwd(), 'hexo-renderer-mdx.component-path.json')
+      ];
       let mapping = null;
-      try {
-        if (fs.existsSync(mappingPath)) {
-          mapping = JSON.parse(fs.readFileSync(mappingPath, 'utf8')) || null;
+      for (const mappingPath of mappingCandidates) {
+        try {
+          if (fs.existsSync(mappingPath)) {
+            mapping = JSON.parse(fs.readFileSync(mappingPath, 'utf8')) || null;
+            break;
+          }
+        } catch (e) {
+          mapping = null;
         }
-      } catch (e) {
-        mapping = null;
       }
 
       const normalize = p => path.resolve(p).split(path.sep).join(path.sep);
